@@ -117,7 +117,8 @@
       types:
         Slash: 12
         Blunt: 5
-        Stamina: 5
+  - type: StaminaDamageOnHit
+    damage: 5
   - type: ReplacementAccent
     accent: genericAggressive
 

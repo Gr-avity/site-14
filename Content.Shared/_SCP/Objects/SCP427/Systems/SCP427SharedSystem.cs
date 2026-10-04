@@ -40,7 +40,6 @@ public sealed class SCP427SharedSystem : EntitySystem
                 { "Blunt", exposure.MeleeDamageMultiplier },
                 { "Slash", exposure.MeleeDamageMultiplier },
                 { "Piercing", exposure.MeleeDamageMultiplier },
-                { "Stamina", exposure.MeleeDamageMultiplier },
             }
         });
     }
