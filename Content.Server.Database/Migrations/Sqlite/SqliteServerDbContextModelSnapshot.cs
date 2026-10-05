@@ -984,6 +984,14 @@ namespace Content.Server.Database.Migrations.Sqlite
                         .HasColumnType("TEXT")
                         .HasColumnName("last_seen_user_name");
 
+                    b.Property<int>("TicketBalance")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("ticket_balance");
+
+                    b.Property<float>("TicketModifier")
+                        .HasColumnType("REAL")
+                        .HasColumnName("ticket_modifier");
+
                     b.Property<Guid>("UserId")
                         .HasColumnType("TEXT")
                         .HasColumnName("user_id");

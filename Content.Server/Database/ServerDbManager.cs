@@ -61,6 +61,12 @@ namespace Content.Server.Database
         Task<NetUserId?> GetAssignedUserIdAsync(string name);
         #endregion
 
+        #region Tickets
+        Task<(int balance, float modifier)> GetTicketsAsync(NetUserId userId, CancellationToken cancel = default);
+        Task AddTicketsAsync(NetUserId userId, int amount);
+        Task SetTicketModifierAsync(NetUserId userId, float modifier);
+        #endregion
+
         #region Bans
         /// <summary>
         ///     Looks up a ban by id.
@@ -530,6 +536,26 @@ namespace Content.Server.Database
             DbReadOpsMetric.Inc();
             return RunDbCommand(() => _db.GetAssignedUserIdAsync(name));
         }
+
+        #region Tickets
+        public Task<(int balance, float modifier)> GetTicketsAsync(NetUserId userId, CancellationToken cancel = default)
+        {
+            DbReadOpsMetric.Inc();
+            return RunDbCommand(() => _db.GetTicketsAsync(userId, cancel));
+        }
+
+        public Task AddTicketsAsync(NetUserId userId, int amount)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.AddTicketsAsync(userId, amount));
+        }
+
+        public Task SetTicketModifierAsync(NetUserId userId, float modifier)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.SetTicketModifierAsync(userId, modifier));
+        }
+        #endregion
 
         public Task<BanDef?> GetBanAsync(int id)
         {

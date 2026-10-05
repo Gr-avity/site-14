@@ -504,6 +504,80 @@ namespace Content.Server.Database
 
         #endregion
 
+        #region Tickets
+        /*
+         * TICKETS
+         */
+        public async Task<(int balance, float modifier)> GetTicketsAsync(NetUserId userId, CancellationToken cancel = default)
+        {
+            await using var db = await GetDb(cancel);
+
+            var player = await db.DbContext.Player
+                .SingleOrDefaultAsync(p => p.UserId == userId.UserId, cancel);
+
+            if (player == null)
+                return (0, 1.0f);
+
+            return (player.TicketBalance, player.TicketModifier);
+        }
+
+        public async Task AddTicketsAsync(NetUserId userId, int amount)
+        {
+            await using var db = await GetDb();
+
+            var player = await db.DbContext.Player
+                .SingleOrDefaultAsync(p => p.UserId == userId.UserId);
+
+            if (player == null)
+            {
+                // Only create a new player record if it doesn't exist
+                db.DbContext.Player.Add(player = new Player
+                {
+                    UserId = userId.UserId,
+                    FirstSeenTime = DateTime.UtcNow,
+                    // Don't set LastSeen fields here - they should be set when player connects
+                    TicketBalance = amount,
+                    TicketModifier = 1.0f,
+                });
+            }
+            else
+            {
+                player.TicketBalance += amount;
+            }
+
+            await db.DbContext.SaveChangesAsync();
+        }
+
+        public async Task SetTicketModifierAsync(NetUserId userId, float modifier)
+        {
+            // Clamp the modifier to the allowed range.
+            modifier = MathF.Max(1.0f, MathF.Min(10.0f, modifier));
+
+            await using var db = await GetDb();
+
+            var player = await db.DbContext.Player
+                .SingleOrDefaultAsync(p => p.UserId == userId.UserId);
+
+            if (player == null)
+            {
+                db.DbContext.Player.Add(player = new Player
+                {
+                    UserId = userId.UserId,
+                    FirstSeenTime = DateTime.UtcNow,
+                    // Don't set LastSeen fields here - they should be set when player connects
+                    TicketModifier = modifier,
+                });
+            }
+            else
+            {
+                player.TicketModifier = modifier;
+            }
+
+            await db.DbContext.SaveChangesAsync();
+        }
+
+        #endregion
+
         #region Player Records
         /*
          * PLAYER RECORDS

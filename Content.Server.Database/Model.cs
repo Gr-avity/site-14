@@ -502,6 +502,10 @@ namespace Content.Server.Database
         public IPAddress LastSeenAddress { get; set; } = null!;
         public TypedHwid? LastSeenHWId { get; set; }
 
+        // Ticket system
+        public int TicketBalance { get; set; } = 0;
+        public float TicketModifier { get; set; } = 1.0f;
+
         // Data that changes with each round
         public List<Round> Rounds { get; set; } = null!;
         public List<AdminLogPlayer> AdminLogs { get; set; } = null!;
