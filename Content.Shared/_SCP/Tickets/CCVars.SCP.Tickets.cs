@@ -33,4 +33,10 @@ public sealed partial class CCVars
     /// </summary>
     public static readonly CVarDef<float> TicketModifierMax =
         CVarDef.Create("scp_tickets.modifier_max", 10.0f, CVar.SERVER);
+
+    /// <summary>
+    /// Whether to announce mass ticket give to all players.
+    /// </summary>
+    public static readonly CVarDef<bool> TicketMassGiveAnnounce =
+        CVarDef.Create("scp_tickets.mass_give_announce", true, CVar.SERVER);
 }

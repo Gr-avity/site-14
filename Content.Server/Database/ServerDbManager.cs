@@ -65,6 +65,8 @@ namespace Content.Server.Database
         Task<(int balance, float modifier)> GetTicketsAsync(NetUserId userId, CancellationToken cancel = default);
         Task AddTicketsAsync(NetUserId userId, int amount);
         Task SetTicketModifierAsync(NetUserId userId, float modifier);
+        // _SCP: Added for ticket balance manipulation
+        Task SetTicketBalanceAsync(NetUserId userId, int balance);
         #endregion
 
         #region Bans
@@ -554,6 +556,13 @@ namespace Content.Server.Database
         {
             DbWriteOpsMetric.Inc();
             return RunDbCommand(() => _db.SetTicketModifierAsync(userId, modifier));
+        }
+
+        // _SCP: Added for ticket balance manipulation
+        public Task SetTicketBalanceAsync(NetUserId userId, int balance)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.SetTicketBalanceAsync(userId, balance));
         }
         #endregion
 

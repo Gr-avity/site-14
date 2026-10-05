@@ -576,6 +576,33 @@ namespace Content.Server.Database
             await db.DbContext.SaveChangesAsync();
         }
 
+        // _SCP: Added for ticket balance manipulation
+        public async Task SetTicketBalanceAsync(NetUserId userId, int balance)
+        {
+            await using var db = await GetDb();
+
+            var player = await db.DbContext.Player
+                .SingleOrDefaultAsync(p => p.UserId == userId.UserId);
+
+            if (player == null)
+            {
+                db.DbContext.Player.Add(player = new Player
+                {
+                    UserId = userId.UserId,
+                    FirstSeenTime = DateTime.UtcNow,
+                    // Don't set LastSeen fields here - they should be set when player connects
+                    TicketBalance = balance,
+                    TicketModifier = 1.0f,
+                });
+            }
+            else
+            {
+                player.TicketBalance = balance;
+            }
+
+            await db.DbContext.SaveChangesAsync();
+        }
+
         #endregion
 
         #region Player Records

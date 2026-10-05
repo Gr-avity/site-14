@@ -4,6 +4,7 @@ using Content.Shared.CCVar;
 using Content.Shared.Players.PlayTimeTracking;
 using Robust.Server.Player;
 using Robust.Shared.Configuration;
+using Robust.Shared.Enums;
 using Robust.Shared.Network;
 using Robust.Shared.Timing;
 using Robust.Shared.Player;
@@ -18,6 +19,7 @@ public sealed partial class TicketSystem : EntitySystem
     [Dependency] private PlayTimeTrackingManager _playTimeTracking = default!;
     [Dependency] private IServerDbManager _db = default!;
     [Dependency] private IConfigurationManager _cfg = default!;
+    private ISawmill _sawmill = default!;
 
     // In-memory cache of paid hours per player (UserId) to track new hours that need tickets
     private readonly Dictionary<NetUserId, int> _paidHoursCache = new();
@@ -33,6 +35,7 @@ public sealed partial class TicketSystem : EntitySystem
 
     public override void Initialize()
     {
+        _sawmill = LogManager.GetSawmill("scp.tickets");
         _playTimeTracking.SessionPlayTimeUpdated += OnPlayTimeUpdated;
         _playerManager.PlayerStatusChanged += OnPlayerStatusChanged;
     }
@@ -90,7 +93,7 @@ public sealed partial class TicketSystem : EntitySystem
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"Error processing tickets for session {session.Name}: {ex}");
+                    _sawmill.Error($"Error processing tickets for session {session.Name}: {ex}");
                 }
             }
 
@@ -109,7 +112,7 @@ public sealed partial class TicketSystem : EntitySystem
         }
         catch (Exception ex)
         {
-            Logger.Error($"Error in ProcessTicketCycleAsync: {ex}");
+            _sawmill.Error($"Error in ProcessTicketCycleAsync: {ex}");
         }
         finally
         {
@@ -194,34 +197,31 @@ public sealed partial class TicketSystem : EntitySystem
         }
         catch (Exception ex)
         {
-            Logger.Error($"Unexpected error processing tickets for session {session.Name}: {ex}");
+            _sawmill.Error($"Unexpected error processing tickets for session {session.Name}: {ex}");
         }
+    }
+
+    private async Task EnsureLoadedAsync(NetUserId userId)
+    {
+        if (_modifierCache.ContainsKey(userId) && _balanceCache.ContainsKey(userId))
+            return;
+
+        var (balance, modifier) = await _db.GetTicketsAsync(userId);
+        _balanceCache[userId] = balance;
+        _modifierCache[userId] = modifier;
     }
 
     // Public API for external systems to use
     public async Task<(int balance, float modifier)> GetTicketsAsync(NetUserId userId)
     {
-        // Ensure we have the latest data from DB
-        if (!_modifierCache.TryGetValue(userId, out var currentModifier) || !_balanceCache.ContainsKey(userId))
-        {
-            var (balance, modifier) = await _db.GetTicketsAsync(userId);
-            _balanceCache[userId] = balance;
-            _modifierCache[userId] = modifier;
-            currentModifier = modifier;
-        }
+        await EnsureLoadedAsync(userId);
 
         return (_balanceCache.GetValueOrDefault(userId), _modifierCache.GetValueOrDefault(userId, 1.0f));
     }
 
     public async Task AddTicketsAsync(NetUserId userId, int amount)
     {
-        // Ensure we have the latest data from DB
-        if (!_modifierCache.TryGetValue(userId, out var _) || !_balanceCache.ContainsKey(userId))
-        {
-            var (balance, modifier) = await _db.GetTicketsAsync(userId);
-            _balanceCache[userId] = balance;
-            _modifierCache[userId] = modifier;
-        }
+        await EnsureLoadedAsync(userId);
 
         await _db.AddTicketsAsync(userId, amount);
         _balanceCache[userId] = _balanceCache.GetValueOrDefault(userId) + amount;
@@ -229,31 +229,30 @@ public sealed partial class TicketSystem : EntitySystem
 
     public async Task SetTicketModifierAsync(NetUserId userId, float modifier)
     {
-        // Ensure we have the latest data from DB
-        if (!_modifierCache.TryGetValue(userId, out var _) || !_balanceCache.ContainsKey(userId))
-        {
-            var (balance, modifier) = await _db.GetTicketsAsync(userId);
-            _balanceCache[userId] = balance;
-            _modifierCache[userId] = modifier;
-        }
+        await EnsureLoadedAsync(userId);
 
         // Clamp the modifier to the allowed range.
-        modifier = MathF.Max(1.0f, MathF.Min(10.0f, modifier));
+        modifier = Math.Clamp(modifier, 1.0f, _cfg.GetCVar(CCVars.TicketModifierMax));
         await _db.SetTicketModifierAsync(userId, modifier);
         _modifierCache[userId] = modifier;
     }
 
     public async Task<int> GetBalanceAsync(NetUserId userId)
     {
-        // Ensure we have the latest data from DB
-        if (!_modifierCache.TryGetValue(userId, out var _) || !_balanceCache.ContainsKey(userId))
-        {
-            var (balance, modifier) = await _db.GetTicketsAsync(userId);
-            _balanceCache[userId] = balance;
-            _modifierCache[userId] = modifier;
-        }
+        await EnsureLoadedAsync(userId);
 
         return _balanceCache.GetValueOrDefault(userId);
+    }
+
+    // _SCP: Added for ticket balance manipulation
+    public async Task SetTicketBalanceAsync(NetUserId userId, int balance)
+    {
+        await EnsureLoadedAsync(userId);
+
+        // Clamp the balance to be non-negative
+        balance = Math.Max(0, balance);
+        await _db.SetTicketBalanceAsync(userId, balance);
+        _balanceCache[userId] = balance;
     }
 
     public void InvalidateCache(NetUserId userId)
