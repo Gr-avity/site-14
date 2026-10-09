@@ -519,62 +519,38 @@ namespace Content.Server.Database
             return (player.TicketBalance, player.TicketModifier);
         }
 
-        public async Task AddTicketsAsync(NetUserId userId, int amount)
+        public async Task<int?> AddTicketsAsync(NetUserId userId, int amount)
         {
             await using var db = await GetDb();
 
+            var rows = await db.DbContext.Player
+                .Where(p => p.UserId == userId.UserId)
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.TicketBalance, p => p.TicketBalance + amount));
+            if (rows == 0)
+                return null;
             var player = await db.DbContext.Player
-                .SingleOrDefaultAsync(p => p.UserId == userId.UserId);
-
-            if (player == null)
-            {
-                // Only create a new player record if it doesn't exist
-                db.DbContext.Player.Add(player = new Player
-                {
-                    UserId = userId.UserId,
-                    FirstSeenTime = DateTime.UtcNow,
-                    // Don't set LastSeen fields here - they should be set when player connects
-                    TicketBalance = amount,
-                    TicketModifier = 1.0f,
-                });
-            }
-            else
-            {
-                player.TicketBalance += amount;
-            }
-
-            await db.DbContext.SaveChangesAsync();
+                .Where(p => p.UserId == userId.UserId)
+                .Select(p => p.TicketBalance)
+                .SingleAsync();
+            return player;
         }
 
-        public async Task SetTicketModifierAsync(NetUserId userId, float modifier)
+        public async Task<bool> SetTicketModifierAsync(NetUserId userId, float modifier)
         {
-            // Clamp the modifier to the allowed range.
-            modifier = MathF.Max(1.0f, MathF.Min(10.0f, modifier));
-
             await using var db = await GetDb();
 
             var player = await db.DbContext.Player
                 .SingleOrDefaultAsync(p => p.UserId == userId.UserId);
 
             if (player == null)
-            {
-                db.DbContext.Player.Add(player = new Player
-                {
-                    UserId = userId.UserId,
-                    FirstSeenTime = DateTime.UtcNow,
-                    // Don't set LastSeen fields here - they should be set when player connects
-                    TicketModifier = modifier,
-                });
-            }
-            else
-            {
-                player.TicketModifier = modifier;
-            }
+                return false;
 
+            player.TicketModifier = modifier;
             await db.DbContext.SaveChangesAsync();
+            return true;
         }
 
-        public async Task SetTicketBalanceAsync(NetUserId userId, int balance)
+        public async Task<bool> SetTicketBalanceAsync(NetUserId userId, int balance)
         {
             await using var db = await GetDb();
 
@@ -582,22 +558,22 @@ namespace Content.Server.Database
                 .SingleOrDefaultAsync(p => p.UserId == userId.UserId);
 
             if (player == null)
-            {
-                db.DbContext.Player.Add(player = new Player
-                {
-                    UserId = userId.UserId,
-                    FirstSeenTime = DateTime.UtcNow,
-                    // Don't set LastSeen fields here - they should be set when player connects
-                    TicketBalance = balance,
-                    TicketModifier = 1.0f,
-                });
-            }
-            else
-            {
-                player.TicketBalance = balance;
-            }
+                return false;
 
+            player.TicketBalance = balance;
             await db.DbContext.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> TrySpendTicketsAsync(NetUserId userId, int cost)
+        {
+            await using var db = await GetDb();
+
+            var rows = await db.DbContext.Player
+                .Where(p => p.UserId == userId.UserId && p.TicketBalance >= cost)
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.TicketBalance, p => p.TicketBalance - cost));
+
+            return rows > 0;
         }
 
         #endregion

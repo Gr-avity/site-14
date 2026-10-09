@@ -20,69 +20,81 @@ public sealed partial class ModifyTicketBalanceCommand : LocalizedEntityCommands
 
     public override async void Execute(IConsoleShell shell, string argStr, string[] args)
     {
-        if (args.Length < 3)
+        try
         {
-            shell.WriteError(Loc.GetString("cmd-scp-modifyticketbalance-error-usage"));
-            return;
+            if (args.Length < 3)
+            {
+                shell.WriteError(Loc.GetString("cmd-scp-modifyticketbalance-error-usage"));
+                return;
+            }
+
+            var targetArg = args[0];
+            var operation = args[1].ToLowerInvariant();
+            var amountStr = args[2];
+
+            if (operation != "add" && operation != "subtract" && operation != "set")
+            {
+                shell.WriteError(Loc.GetString("cmd-scp-modifyticketbalance-error-invalid-operation"));
+                return;
+            }
+
+            if (!int.TryParse(amountStr, out var amount) || amount < 0)
+            {
+                shell.WriteError(Loc.GetString("cmd-scp-modifyticketbalance-error-invalid-amount"));
+                return;
+            }
+
+            var data = await _locator.LookupIdByNameOrIdAsync(targetArg);
+            if (data == null)
+            {
+                shell.WriteError(Loc.GetString("cmd-scp-modifyticketbalance-error-player-not-found", ("player", targetArg)));
+                return;
+            }
+
+            var userId = new NetUserId(data.UserId);
+
+            var system = EntityManager.System<TicketSystem>();
+            var (currentBalance, currentModifier) = await system.GetTicketsAsync(userId);
+
+            int newBalance;
+            if (operation == "add")
+            {
+                if (amount > int.MaxValue - currentBalance)
+                {
+                    shell.WriteError(Loc.GetString("cmd-scp-modifyticketbalance-error-overflow"));
+                    return;
+                }
+                newBalance = currentBalance + amount;
+            }
+            else if (operation == "subtract")
+            {
+                newBalance = Math.Max(0, currentBalance - amount);
+            }
+            else // set
+            {
+                newBalance = amount;
+            }
+
+            await system.SetTicketBalanceAsync(userId, newBalance);
+
+            _adminLogger.Add(
+                LogType.AdminCommands,
+                LogImpact.Medium,
+                $"{shell.Player} modified ticket balance for {data.Username}: {currentBalance} -> {newBalance}"
+            );
+
+            var result = Loc.GetString(
+                "cmd-scp-modifyticketbalance-result",
+                ("player", data.Username),
+                ("old", currentBalance.ToString()),
+                ("new", newBalance.ToString())
+            );
+            shell.WriteLine(result);
         }
-
-        var targetArg = args[0];
-        var operation = args[1].ToLowerInvariant();
-        var amountStr = args[2];
-
-        if (operation != "add" && operation != "subtract" && operation != "set")
+        catch (Exception e)
         {
-            shell.WriteError(Loc.GetString("cmd-scp-modifyticketbalance-error-invalid-operation"));
-            return;
+            shell.WriteError($"Failed to modify ticket balance: {e.Message}");
         }
-
-        if (!int.TryParse(amountStr, out var amount) || amount < 0)
-        {
-            shell.WriteError(Loc.GetString("cmd-scp-modifyticketbalance-error-invalid-amount"));
-            return;
-        }
-
-        var data = await _locator.LookupIdByNameOrIdAsync(targetArg);
-        if (data == null)
-        {
-            shell.WriteError(Loc.GetString("cmd-scp-modifyticketbalance-error-player-not-found", ("player", targetArg)));
-            return;
-        }
-
-        var userId = new NetUserId(data.UserId);
-
-        var system = EntityManager.System<TicketSystem>();
-        var (currentBalance, currentModifier) = await system.GetTicketsAsync(userId);
-
-        int newBalance;
-        if (operation == "add")
-        {
-            newBalance = currentBalance + amount;
-        }
-        else if (operation == "subtract")
-        {
-            newBalance = Math.Max(0, currentBalance - amount);
-        }
-        else // set
-        {
-            newBalance = amount;
-        }
-
-        await system.SetTicketBalanceAsync(userId, newBalance);
-
-        _adminLogger.Add(
-            LogType.AdminCommands,
-            LogImpact.Medium,
-            $"{shell.Player} modified ticket balance for {data.Username}: {currentBalance} -> {newBalance}"
-        );
-
-        var result = Loc.GetString(
-            "cmd-scp-modifyticketbalance-result",
-            ("player", data.Username),
-            ("old", currentBalance.ToString()),
-            ("new", newBalance.ToString())
-        );
-        shell.WriteLine(result);
     }
 
     public override CompletionResult GetCompletion(IConsoleShell shell, string[] args)

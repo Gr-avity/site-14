@@ -64,9 +64,10 @@ namespace Content.Server.Database
         // Foundation-14 start
         #region Tickets
         Task<(int balance, float modifier)> GetTicketsAsync(NetUserId userId, CancellationToken cancel = default);
-        Task AddTicketsAsync(NetUserId userId, int amount);
-        Task SetTicketModifierAsync(NetUserId userId, float modifier);
-        Task SetTicketBalanceAsync(NetUserId userId, int balance);
+        Task<int?> AddTicketsAsync(NetUserId userId, int amount);
+        Task<bool> SetTicketModifierAsync(NetUserId userId, float modifier);
+        Task<bool> SetTicketBalanceAsync(NetUserId userId, int balance);
+        Task<bool> TrySpendTicketsAsync(NetUserId userId, int cost);
         #endregion
         // Foundation-14 end
 
@@ -548,22 +549,28 @@ namespace Content.Server.Database
             return RunDbCommand(() => _db.GetTicketsAsync(userId, cancel));
         }
 
-        public Task AddTicketsAsync(NetUserId userId, int amount)
+        public Task<int?> AddTicketsAsync(NetUserId userId, int amount)
         {
             DbWriteOpsMetric.Inc();
             return RunDbCommand(() => _db.AddTicketsAsync(userId, amount));
         }
 
-        public Task SetTicketModifierAsync(NetUserId userId, float modifier)
+        public Task<bool> SetTicketModifierAsync(NetUserId userId, float modifier)
         {
             DbWriteOpsMetric.Inc();
             return RunDbCommand(() => _db.SetTicketModifierAsync(userId, modifier));
         }
 
-        public Task SetTicketBalanceAsync(NetUserId userId, int balance)
+        public Task<bool> SetTicketBalanceAsync(NetUserId userId, int balance)
         {
             DbWriteOpsMetric.Inc();
             return RunDbCommand(() => _db.SetTicketBalanceAsync(userId, balance));
+        }
+
+        public Task<bool> TrySpendTicketsAsync(NetUserId userId, int cost)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.TrySpendTicketsAsync(userId, cost));
         }
         #endregion
         // Foundation-14 end

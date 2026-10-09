@@ -22,58 +22,69 @@ public sealed partial class MassModifyTicketsCommand : LocalizedEntityCommands
 
     public override async void Execute(IConsoleShell shell, string argStr, string[] args)
     {
-        if (args.Length < 1)
+        try
         {
-            shell.WriteError(Loc.GetString("cmd-scp-massmodifytickets-error-usage"));
-            return;
-        }
-
-        if (!int.TryParse(args[0], out var amount) || amount <= 0)
-        {
-            shell.WriteError(Loc.GetString("cmd-scp-massmodifytickets-error-positive"));
-            return;
-        }
-
-        var system = EntityManager.System<TicketSystem>();
-
-        // Apply to all sessions
-        var playerCount = 0;
-        foreach (var session in _playerManager.Sessions)
-        {
-            try
+            if (args.Length < 1)
             {
-                await system.AddTicketsAsync(session.UserId, amount);
-                playerCount++;
+                shell.WriteError(Loc.GetString("cmd-scp-massmodifytickets-error-usage"));
+                return;
             }
-            catch
+
+            if (!int.TryParse(args[0], out var amount) || amount <= 0)
             {
-                // Skip sessions where tickets can't be added
+                shell.WriteError(Loc.GetString("cmd-scp-massmodifytickets-error-positive"));
+                return;
             }
-        }
 
-        _adminLogger.Add(
-            LogType.AdminCommands,
-            LogImpact.Medium,
-            $"{shell.Player} mass modified tickets for {playerCount} players: +{amount} each"
-        );
+            var system = EntityManager.System<TicketSystem>();
 
-        var massGiveAnnounce = _cfg.GetCVar(CCVars.TicketMassGiveAnnounce);
-        if (massGiveAnnounce)
-        {
-            var announcement = Loc.GetString(
-                "cmd-scp-massmodifytickets-announcement",
+            // Apply to all sessions
+            var playerCount = 0;
+            var failed = new List<string>();
+            foreach (var session in _playerManager.Sessions)
+            {
+                try
+                {
+                    await system.AddTicketsAsync(session.UserId, amount);
+                    playerCount++;
+                }
+                catch (Exception ex)
+                {
+                    failed.Add(session.Name);
+                    Logger.GetSawmill("scp_tickets").Error($"Mass add failed for {session.Name}: {ex}");
+                }
+            }
+            if (failed.Count > 0)
+                shell.WriteError($"Failed for {failed.Count} players: {string.Join(", ", failed)}");
+
+            _adminLogger.Add(
+                LogType.AdminCommands,
+                LogImpact.Medium,
+                $"{shell.Player} mass modified tickets for {playerCount} players: +{amount} each"
+            );
+
+            var massGiveAnnounce = _cfg.GetCVar(CCVars.TicketMassGiveAnnounce);
+            if (massGiveAnnounce)
+            {
+                var announcement = Loc.GetString(
+                    "cmd-scp-massmodifytickets-announcement",
+                    ("count", playerCount.ToString()),
+                    ("amount", amount.ToString())
+                );
+                _chatManager.DispatchServerAnnouncement(announcement);
+            }
+
+            var result = Loc.GetString(
+                "cmd-scp-massmodifytickets-result",
                 ("count", playerCount.ToString()),
                 ("amount", amount.ToString())
             );
-            _chatManager.DispatchServerAnnouncement(announcement);
+            shell.WriteLine(result);
         }
-
-        var result = Loc.GetString(
-            "cmd-scp-massmodifytickets-result",
-            ("count", playerCount.ToString()),
-            ("amount", amount.ToString())
-        );
-        shell.WriteLine(result);
+        catch (Exception e)
+        {
+            shell.WriteError($"Failed to mass modify ticket balance: {e.Message}");
+        }
     }
 
     public override CompletionResult GetCompletion(IConsoleShell shell, string[] args)

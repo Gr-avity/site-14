@@ -72,13 +72,15 @@ public sealed partial class TicketSystem : EntitySystem
 
     private void OnPlayerStatusChanged(object? sender, SessionStatusEventArgs e)
     {
-        if (e.NewStatus == SessionStatus.Disconnected)
+        switch (e.NewStatus)
         {
-            InvalidateCache(e.Session.UserId);
-        }
-        else if (e.NewStatus == SessionStatus.InGame)
-        {
-            SendTicketInfo(e.Session);
+            // preload ticket data + push lobby balance as soon as the session is known
+            case SessionStatus.Connected:
+                SendTicketInfo(e.Session);
+                break;
+            case SessionStatus.InGame:
+                SendTicketInfo(e.Session);
+                break;
         }
     }
 
@@ -148,8 +150,10 @@ public sealed partial class TicketSystem : EntitySystem
             var tickets = (int) Math.Floor(newHours * modifierRounded * rate);
             if (tickets > 0)
             {
-                await _db.AddTicketsAsync(userId, tickets);
-                _balanceCache[userId] = _balanceCache.GetValueOrDefault(userId) + tickets;
+                var newBalance = await _db.AddTicketsAsync(userId, tickets);
+                if (newBalance == null)
+                    return;
+                _balanceCache[userId] = newBalance.Value;
             }
 
             _paidHoursCache[userId] = totalHours;
@@ -178,31 +182,15 @@ public sealed partial class TicketSystem : EntitySystem
         }
     }
 
-    /// <summary>
-    /// Preloads ticket caches for all given sessions. Called from GameTicker.SpawnPlayers
-    /// before AssignJobs so that candidate filtering sees up-to-date balances.
-    /// </summary>
-    public async Task PreloadTicketsAsync(IEnumerable<ICommonSession> sessions)
-    {
-        foreach (var session in sessions)
-        {
-            try
-            {
-                await EnsureLoadedAsync(session.UserId);
-            }
-            catch (Exception ex)
-            {
-                _sawmill.Error($"Failed to preload tickets for {session}: {ex}");
-            }
-        }
-    }
-
     #region Ticket queue — roundstart candidate filtering
 
     private void OnStationJobsGetCandidates(ref StationJobsGetCandidatesEvent ev)
     {
         if (!_balanceCache.TryGetValue(ev.Player, out var balance))
-            return; // Not preloaded — leave candidates untouched.
+        {
+            _ = EnsureLoadedAsync(ev.Player);
+            balance = 0;
+        }
 
         ev.Jobs.RemoveAll(job =>
         {
@@ -216,7 +204,10 @@ public sealed partial class TicketSystem : EntitySystem
     private void OnGetDisallowedJobs(ref GetDisallowedJobsEvent ev)
     {
         if (!_balanceCache.TryGetValue(ev.Player.UserId, out var balance))
-            return;
+        {
+            _ = EnsureLoadedAsync(ev.Player.UserId);
+            balance = 0;
+        }
 
         foreach (var proto in _prototypeManager.EnumeratePrototypes<JobPrototype>())
         {
@@ -235,7 +226,11 @@ public sealed partial class TicketSystem : EntitySystem
             return;
 
         if (!_balanceCache.TryGetValue(ev.Player.UserId, out var balance))
+        {
+            ev.Cancelled = true;
+            _ = EnsureLoadedAsync(ev.Player.UserId);
             return;
+        }
 
         foreach (var jobId in ev.Jobs)
         {
@@ -280,14 +275,17 @@ public sealed partial class TicketSystem : EntitySystem
     {
         try
         {
-            await AddTicketsAsync(player.UserId, -job.TicketCost);
-            var newBalance = _balanceCache.GetValueOrDefault(player.UserId);
+            if (!await _db.TrySpendTicketsAsync(player.UserId, job.TicketCost))
+                return;
+
+            _balanceCache[player.UserId] -= job.TicketCost;
+            TryPushTicketInfo(player.UserId);
 
             _chatManager.DispatchServerMessage(player,
                 Loc.GetString("scp-tickets-spent",
                     ("cost", job.TicketCost),
                     ("role", job.LocalizedName),
-                    ("balance", newBalance)));
+                    ("balance", _balanceCache[player.UserId])));
         }
         catch (Exception ex)
         {
@@ -351,9 +349,12 @@ public sealed partial class TicketSystem : EntitySystem
     {
         await EnsureLoadedAsync(userId);
 
-        await _db.AddTicketsAsync(userId, amount);
-        _balanceCache[userId] = _balanceCache.GetValueOrDefault(userId) + amount;
+        var newBalance = await _db.AddTicketsAsync(userId, amount);
 
+        if (newBalance == null)
+            return;
+
+        _balanceCache[userId] = newBalance.Value;
         TryPushTicketInfo(userId);
     }
 
@@ -364,17 +365,11 @@ public sealed partial class TicketSystem : EntitySystem
         // Clamp the modifier to the allowed range.
         modifier = Math.Clamp(modifier, 1.0f, _cfg.GetCVar(CCVars.TicketModifierMax));
         modifier = (float) Math.Round((double) modifier, 2);
-        await _db.SetTicketModifierAsync(userId, modifier);
+        if (!await _db.SetTicketModifierAsync(userId, modifier))
+            return;
+
         _modifierCache[userId] = modifier;
-
         TryPushTicketInfo(userId);
-    }
-
-    public async Task<int> GetBalanceAsync(NetUserId userId)
-    {
-        await EnsureLoadedAsync(userId);
-
-        return _balanceCache.GetValueOrDefault(userId);
     }
 
     public async Task SetTicketBalanceAsync(NetUserId userId, int balance)
@@ -383,10 +378,18 @@ public sealed partial class TicketSystem : EntitySystem
 
         // Clamp the balance to be non-negative
         balance = Math.Max(0, balance);
-        await _db.SetTicketBalanceAsync(userId, balance);
-        _balanceCache[userId] = balance;
+        if (!await _db.SetTicketBalanceAsync(userId, balance))
+            return;
 
+        _balanceCache[userId] = balance;
         TryPushTicketInfo(userId);
+    }
+
+    public async Task<int> GetBalanceAsync(NetUserId userId)
+    {
+        await EnsureLoadedAsync(userId);
+
+        return _balanceCache.GetValueOrDefault(userId);
     }
 
     public void InvalidateCache(NetUserId userId)

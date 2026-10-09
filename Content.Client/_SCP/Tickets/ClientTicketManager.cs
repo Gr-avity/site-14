@@ -4,7 +4,7 @@ using Robust.Client;
 
 namespace Content.Client._SCP.Tickets;
 
-public sealed class ClientTicketManager
+public sealed partial class ClientTicketManager
 {
     [Dependency] private IClientNetManager _net = default!;
     [Dependency] private IBaseClient _client = default!;

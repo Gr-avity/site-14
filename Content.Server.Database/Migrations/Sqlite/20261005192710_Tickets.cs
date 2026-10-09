@@ -22,7 +22,7 @@ namespace Content.Server.Database.Migrations.Sqlite
                 table: "player",
                 type: "REAL",
                 nullable: false,
-                defaultValue: 0f);
+                defaultValue: 1.0f);
         }
 
         /// <inheritdoc />

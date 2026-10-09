@@ -24,65 +24,73 @@ public sealed partial class ModifyTicketsCommand : LocalizedEntityCommands
 
     public override async void Execute(IConsoleShell shell, string argStr, string[] args)
     {
-        if (args.Length < 3)
+        try
         {
-            shell.WriteError(Loc.GetString("cmd-scp-modifytickets-error-usage"));
-            return;
+            if (args.Length < 3)
+            {
+                shell.WriteError(Loc.GetString("cmd-scp-modifytickets-error-usage"));
+                return;
+            }
+
+            var targetArg = args[0];
+            var operation = args[1].ToLowerInvariant();
+            var amountStr = args[2];
+
+            if (operation != "add" && operation != "subtract")
+            {
+                shell.WriteError(Loc.GetString("cmd-scp-modifytickets-error-invalid-operation"));
+                return;
+            }
+
+            if (!float.TryParse(amountStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var amount)
+                || !float.IsFinite(amount) || amount <= 0.0f)
+            {
+                shell.WriteError(Loc.GetString("cmd-scp-modifytickets-error-invalid-amount"));
+                return;
+            }
+
+            var data = await _locator.LookupIdByNameOrIdAsync(targetArg);
+            if (data == null)
+            {
+                shell.WriteError(Loc.GetString("cmd-scp-modifytickets-error-player-not-found", ("player", targetArg)));
+                return;
+            }
+
+            var userId = new NetUserId(data.UserId);
+
+            var system = EntityManager.System<TicketSystem>();
+            var (currentBalance, currentModifier) = await system.GetTicketsAsync(userId);
+
+            float newModifier;
+            if (operation == "add")
+            {
+                newModifier = MathF.Min(currentModifier + amount, _cfg.GetCVar(CCVars.TicketModifierMax));
+            }
+            else
+            {
+                newModifier = MathF.Max(currentModifier - amount, 1.0f);
+            }
+
+            await system.SetTicketModifierAsync(userId, newModifier);
+
+            _adminLogger.Add(
+                LogType.AdminCommands,
+                LogImpact.Medium,
+                $"{shell.Player} modified ticket modifier for {data.Username}: {currentModifier} -> {newModifier}"
+            );
+
+            var result = Loc.GetString(
+                "cmd-scp-modifytickets-result",
+                ("player", data.Username),
+                ("old", currentModifier.ToString("F2")),
+                ("new", newModifier.ToString("F2"))
+            );
+            shell.WriteLine(result);
         }
-
-        var targetArg = args[0];
-        var operation = args[1].ToLowerInvariant();
-        var amountStr = args[2];
-
-        if (operation != "add" && operation != "subtract")
+        catch (Exception e)
         {
-            shell.WriteError(Loc.GetString("cmd-scp-modifytickets-error-invalid-operation"));
-            return;
+            shell.WriteError($"Failed to modify ticket modifier: {e.Message}");
         }
-
-        if (!float.TryParse(amountStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var amount) || amount <= 0.0f)
-        {
-            shell.WriteError(Loc.GetString("cmd-scp-modifytickets-error-invalid-amount"));
-            return;
-        }
-
-        var data = await _locator.LookupIdByNameOrIdAsync(targetArg);
-        if (data == null)
-        {
-            shell.WriteError(Loc.GetString("cmd-scp-modifytickets-error-player-not-found", ("player", targetArg)));
-            return;
-        }
-
-        var userId = new NetUserId(data.UserId);
-
-        var system = EntityManager.System<TicketSystem>();
-        var (currentBalance, currentModifier) = await system.GetTicketsAsync(userId);
-
-        float newModifier;
-        if (operation == "add")
-        {
-            newModifier = MathF.Min(currentModifier + amount, _cfg.GetCVar(CCVars.TicketModifierMax));
-        }
-        else
-        {
-            newModifier = MathF.Max(currentModifier - amount, 1.0f);
-        }
-
-        await system.SetTicketModifierAsync(userId, newModifier);
-
-        _adminLogger.Add(
-            LogType.AdminCommands,
-            LogImpact.Medium,
-            $"{shell.Player} modified ticket modifier for {data.Username}: {currentModifier} -> {newModifier}"
-        );
-
-        var result = Loc.GetString(
-            "cmd-scp-modifytickets-result",
-            ("player", data.Username),
-            ("old", currentModifier.ToString("F2")),
-            ("new", newModifier.ToString("F2"))
-        );
-        shell.WriteLine(result);
     }
 
     public override CompletionResult GetCompletion(IConsoleShell shell, string[] args)
