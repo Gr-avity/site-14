@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Numerics;
+using Content.Client._SCP.Tickets; // Foundation-14
 using Content.Client.CrewManifest;
 using Content.Client.GameTicking.Managers;
 using Content.Client.Lobby;
@@ -36,6 +37,7 @@ namespace Content.Client.LateJoin
         private readonly ClientGameTicker _gameTicker;
         private readonly SpriteSystem _sprites;
         private readonly CrewManifestSystem _crewManifest;
+        private readonly ClientTicketManager _ticketManager; // Foundation-14
         private readonly ISawmill _sawmill;
 
         private readonly Dictionary<NetEntity, Dictionary<string, List<JobButton>>> _jobButtons = new();
@@ -51,6 +53,7 @@ namespace Content.Client.LateJoin
             _sprites = _entitySystem.GetEntitySystem<SpriteSystem>();
             _crewManifest = _entitySystem.GetEntitySystem<CrewManifestSystem>();
             _gameTicker = _entitySystem.GetEntitySystem<ClientGameTicker>();
+            _ticketManager = IoCManager.Resolve<ClientTicketManager>(); // Foundation-14
             _sawmill = _logManager.GetSawmill("latejoin.panel");
 
             Title = Loc.GetString("late-join-gui-title");
@@ -64,6 +67,7 @@ namespace Content.Client.LateJoin
             ContentsContainer.AddChild(_base);
 
             _jobRequirements.Updated += RebuildUI;
+            _ticketManager.TicketInfoUpdated += RebuildUI; // Foundation-14
             RebuildUI();
 
             SelectedId += x =>
@@ -266,11 +270,18 @@ namespace Content.Client.LateJoin
 
                         jobButton.OnPressed += _ => SelectedId.Invoke((id, jobButton.JobId));
 
-                        if (!_jobRequirements.IsAllowed(prototype, (HumanoidCharacterProfile?)_preferencesManager.Preferences?.SelectedCharacter, out var reason))
+                        if (!_jobRequirements.IsAllowed(prototype, (HumanoidCharacterProfile?)_preferencesManager.Preferences?.SelectedCharacter, out var reason)
+                        // Foundation-14 start
+                            || (prototype.TicketOnly && prototype.TicketCost > _ticketManager.Balance
+                                && (reason = FormattedMessage.FromMarkupOrThrow(Loc.GetString("scp-tickets-insufficient",
+                                    ("role", prototype.LocalizedName),
+                                    ("cost", prototype.TicketCost),
+                                    ("balance", _ticketManager.Balance)))) != null))
+                        // Foundation-14 end
                         {
                             jobButton.Disabled = true;
 
-                            if (!reason.IsEmpty)
+                            if (reason != null && !reason.IsEmpty) // Foundation-14: add reason != null
                             {
                                 var tooltip = new Tooltip();
                                 tooltip.SetMessage(reason);
@@ -338,6 +349,7 @@ namespace Content.Client.LateJoin
             {
                 _jobRequirements.Updated -= RebuildUI;
                 _gameTicker.LobbyJobsAvailableUpdated -= JobsAvailableUpdated;
+                _ticketManager.TicketInfoUpdated -= RebuildUI; // Foundation-14
                 _jobButtons.Clear();
                 _jobCategories.Clear();
             }

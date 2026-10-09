@@ -208,12 +208,24 @@ public sealed partial class HumanoidProfileEditor
                 };
                 var jobIcon = _prototypeManager.Index(job.Icon);
                 icon.Texture = _sprite.Frame0(jobIcon.Icon);
-                selector.Setup(items, job.LocalizedName, 200, job.LocalizedDescription, icon, job.Guides);
+                // Foundation-14 start: append ticket cost to description tooltip
+                var description = job.TicketOnly && job.TicketCost > 0
+                    ? job.LocalizedDescription + "\n" + Loc.GetString("scp-tickets-job-cost", ("cost", job.TicketCost))
+                    : job.LocalizedDescription;
+                // Foundation-14 end
+
+                selector.Setup(items, job.LocalizedName, 200, description, icon, job.Guides); // Foundation-14
 
                 if (!_requirements.IsAllowed(job, (HumanoidCharacterProfile?)_preferencesManager.Preferences?.SelectedCharacter, out var reason))
                 {
                     selector.LockRequirements(reason);
                 }
+                // Foundation-14 start
+                else if (!CheckJobTickets(job, out var ticketReason))
+                {
+                    selector.LockRequirements(ticketReason);
+                }
+                // Foundation-14 end
                 else
                 {
                     selector.UnlockRequirements();

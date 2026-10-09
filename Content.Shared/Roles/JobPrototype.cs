@@ -68,6 +68,20 @@ public sealed partial class JobPrototype : IPrototype
     [DataField]
     public bool SetPreference = true;
 
+    // Foundation-14 start
+    /// <summary>
+    /// Whether this job is only available through the ticket queue.
+    /// </summary>
+    [DataField]
+    public bool TicketOnly = false;
+
+    /// <summary>
+    /// The cost in tickets for this job.
+    /// </summary>
+    [DataField]
+    public int TicketCost = 0;
+    // Foundation-14 end
+
     /// <summary>
     /// Should the selected traits be applied for this job?
     /// </summary>

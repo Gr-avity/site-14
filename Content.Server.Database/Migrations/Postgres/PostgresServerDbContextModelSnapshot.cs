@@ -1041,7 +1041,15 @@ namespace Content.Server.Database.Migrations.Postgres
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("last_seen_user_name");
+                    // Foundation-14 start
+                    b.Property<int>("TicketBalance")
+                        .HasColumnType("integer")
+                        .HasColumnName("ticket_balance");
 
+                    b.Property<float>("TicketModifier")
+                        .HasColumnType("real")
+                        .HasColumnName("ticket_modifier");
+                    // Foundation-14 end
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
                         .HasColumnName("user_id");

@@ -61,6 +61,16 @@ namespace Content.Server.Database
         Task<NetUserId?> GetAssignedUserIdAsync(string name);
         #endregion
 
+        // Foundation-14 start
+        #region Tickets
+        Task<(int balance, float modifier)> GetTicketsAsync(NetUserId userId, CancellationToken cancel = default);
+        Task<int?> AddTicketsAsync(NetUserId userId, int amount);
+        Task<bool> SetTicketModifierAsync(NetUserId userId, float modifier);
+        Task<bool> SetTicketBalanceAsync(NetUserId userId, int balance);
+        Task<bool> TrySpendTicketsAsync(NetUserId userId, int cost);
+        #endregion
+        // Foundation-14 end
+
         #region Bans
         /// <summary>
         ///     Looks up a ban by id.
@@ -530,6 +540,40 @@ namespace Content.Server.Database
             DbReadOpsMetric.Inc();
             return RunDbCommand(() => _db.GetAssignedUserIdAsync(name));
         }
+
+        // Foundation-14 start
+        #region Tickets
+        public Task<(int balance, float modifier)> GetTicketsAsync(NetUserId userId, CancellationToken cancel = default)
+        {
+            DbReadOpsMetric.Inc();
+            return RunDbCommand(() => _db.GetTicketsAsync(userId, cancel));
+        }
+
+        public Task<int?> AddTicketsAsync(NetUserId userId, int amount)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.AddTicketsAsync(userId, amount));
+        }
+
+        public Task<bool> SetTicketModifierAsync(NetUserId userId, float modifier)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.SetTicketModifierAsync(userId, modifier));
+        }
+
+        public Task<bool> SetTicketBalanceAsync(NetUserId userId, int balance)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.SetTicketBalanceAsync(userId, balance));
+        }
+
+        public Task<bool> TrySpendTicketsAsync(NetUserId userId, int cost)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.TrySpendTicketsAsync(userId, cost));
+        }
+        #endregion
+        // Foundation-14 end
 
         public Task<BanDef?> GetBanAsync(int id)
         {

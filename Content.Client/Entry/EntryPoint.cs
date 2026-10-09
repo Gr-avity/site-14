@@ -10,6 +10,7 @@ using Content.Client.GhostKick;
 using Content.Client.Guidebook;
 using Content.Client.Input;
 using Content.Client.IoC;
+using Content.Client._SCP.Tickets; // Foundation-14
 using Content.Client.Launcher;
 using Content.Client.Lobby;
 using Content.Client.MainMenu;
@@ -46,6 +47,7 @@ namespace Content.Client.Entry
 {
     public sealed partial class EntryPoint : GameClient
     {
+        [Dependency] private ClientTicketManager _ticketManager = default!; // Foundation-14
         [Dependency] private IBaseClient _baseClient = default!;
         [Dependency] private IGameController _gameController = default!;
         [Dependency] private IStateManager _stateManager = default!;
@@ -132,6 +134,7 @@ namespace Content.Client.Entry
             _prototypeManager.RegisterIgnore("codewordFaction");
 
             _componentFactory.GenerateNetIds();
+            _ticketManager.Initialize(); // Foundation-14
             _adminManager.Initialize();
             _screenshotHook.Initialize();
             _fullscreenHook.Initialize();

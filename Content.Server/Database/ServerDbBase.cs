@@ -504,6 +504,81 @@ namespace Content.Server.Database
 
         #endregion
 
+        // Foundation-14 start
+        #region Tickets
+        public async Task<(int balance, float modifier)> GetTicketsAsync(NetUserId userId, CancellationToken cancel = default)
+        {
+            await using var db = await GetDb(cancel);
+
+            var player = await db.DbContext.Player
+                .SingleOrDefaultAsync(p => p.UserId == userId.UserId, cancel);
+
+            if (player == null)
+                return (0, 1.0f);
+
+            return (player.TicketBalance, player.TicketModifier);
+        }
+
+        public async Task<int?> AddTicketsAsync(NetUserId userId, int amount)
+        {
+            await using var db = await GetDb();
+
+            var rows = await db.DbContext.Player
+                .Where(p => p.UserId == userId.UserId)
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.TicketBalance, p => p.TicketBalance + amount));
+            if (rows == 0)
+                return null;
+            var player = await db.DbContext.Player
+                .Where(p => p.UserId == userId.UserId)
+                .Select(p => p.TicketBalance)
+                .SingleAsync();
+            return player;
+        }
+
+        public async Task<bool> SetTicketModifierAsync(NetUserId userId, float modifier)
+        {
+            await using var db = await GetDb();
+
+            var player = await db.DbContext.Player
+                .SingleOrDefaultAsync(p => p.UserId == userId.UserId);
+
+            if (player == null)
+                return false;
+
+            player.TicketModifier = modifier;
+            await db.DbContext.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> SetTicketBalanceAsync(NetUserId userId, int balance)
+        {
+            await using var db = await GetDb();
+
+            var player = await db.DbContext.Player
+                .SingleOrDefaultAsync(p => p.UserId == userId.UserId);
+
+            if (player == null)
+                return false;
+
+            player.TicketBalance = balance;
+            await db.DbContext.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> TrySpendTicketsAsync(NetUserId userId, int cost)
+        {
+            await using var db = await GetDb();
+
+            var rows = await db.DbContext.Player
+                .Where(p => p.UserId == userId.UserId && p.TicketBalance >= cost)
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.TicketBalance, p => p.TicketBalance - cost));
+
+            return rows > 0;
+        }
+
+        #endregion
+        // Foundation-14 end
+
         #region Player Records
         /*
          * PLAYER RECORDS
