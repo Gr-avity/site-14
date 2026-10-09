@@ -57,76 +57,87 @@ namespace Content.Server.GameTicking
             return spawnableStations;
         }
 
-        private void SpawnPlayers(List<ICommonSession> readyPlayers,
+        private async void SpawnPlayers(List<ICommonSession> readyPlayers, // Foundation-14: make async
             Dictionary<NetUserId, HumanoidCharacterProfile> profiles,
             bool force)
         {
-            // Allow game rules to spawn players by themselves if needed. (For example, nuke ops or wizard)
-            RaiseLocalEvent(new RulePlayerSpawningEvent(readyPlayers, profiles, force));
-
-            var playerNetIds = readyPlayers.Select(o => o.UserId).ToHashSet();
-
-            // RulePlayerSpawning feeds a readonlydictionary of profiles.
-            // We need to take these players out of the pool of players available as they've been used.
-            if (readyPlayers.Count != profiles.Count)
+            try // Foundation-14: add try
             {
-                var toRemove = new RemQueue<NetUserId>();
+                // Allow game rules to spawn players by themselves if needed. (For example, nuke ops or wizard)
+                RaiseLocalEvent(new RulePlayerSpawningEvent(readyPlayers, profiles, force));
 
-                foreach (var (player, _) in profiles)
+                var playerNetIds = readyPlayers.Select(o => o.UserId).ToHashSet();
+
+                // RulePlayerSpawning feeds a readonlydictionary of profiles.
+                // We need to take these players out of the pool of players available as they've been used.
+                if (readyPlayers.Count != profiles.Count)
                 {
-                    if (playerNetIds.Contains(player))
+                    var toRemove = new RemQueue<NetUserId>();
+
+                    foreach (var (player, _) in profiles)
+                    {
+                        if (playerNetIds.Contains(player))
+                            continue;
+
+                        toRemove.Add(player);
+                    }
+
+                    foreach (var player in toRemove)
+                    {
+                        profiles.Remove(player);
+                    }
+                }
+
+                await EntityManager.System<Content.Server._SCP.Tickets.TicketSystem>().PreloadTicketsAsync(readyPlayers); // Foundation-14: preload ticket caches so ticket-queue filtering in AssignJobs can run synchronously
+
+                var spawnableStations = GetSpawnableStations();
+                var assignedJobs = _stationJobs.AssignJobs(profiles, spawnableStations);
+
+                _stationJobs.AssignOverflowJobs(ref assignedJobs, playerNetIds, profiles, spawnableStations);
+
+                // Calculate extended access for stations.
+                var stationJobCounts = spawnableStations.ToDictionary(e => e, _ => 0);
+                foreach (var (netUser, (job, station)) in assignedJobs)
+                {
+                    if (job == null)
+                    {
+                        var playerSession = _playerManager.GetSessionById(netUser);
+                        var evNoJobs = new NoJobsAvailableSpawningEvent(playerSession); // Used by gamerules to wipe their antag slot, if they got one
+                        RaiseLocalEvent(evNoJobs);
+
+                        _chatManager.DispatchServerMessage(playerSession, Loc.GetString("job-not-available-wait-in-lobby"));
+                    }
+                    else
+                    {
+                        stationJobCounts[station] += 1;
+                    }
+                }
+
+                _stationJobs.CalcExtendedAccess(stationJobCounts);
+
+                // Spawn everybody in!
+                foreach (var (player, (job, station)) in assignedJobs)
+                {
+                    if (job == null)
                         continue;
 
-                    toRemove.Add(player);
+                    SpawnPlayer(_playerManager.GetSessionById(player), profiles[player], station, job, false);
                 }
 
-                foreach (var player in toRemove)
-                {
-                    profiles.Remove(player);
-                }
-            }
+                RefreshLateJoinAllowed();
 
-            var spawnableStations = GetSpawnableStations();
-            var assignedJobs = _stationJobs.AssignJobs(profiles, spawnableStations);
-
-            _stationJobs.AssignOverflowJobs(ref assignedJobs, playerNetIds, profiles, spawnableStations);
-
-            // Calculate extended access for stations.
-            var stationJobCounts = spawnableStations.ToDictionary(e => e, _ => 0);
-            foreach (var (netUser, (job, station)) in assignedJobs)
+                // Allow rules to add roles to players who have been spawned in. (For example, on-station traitors)
+                RaiseLocalEvent(new RulePlayerJobsAssignedEvent(
+                    assignedJobs.Keys.Select(x => _playerManager.GetSessionById(x)).ToArray(),
+                    profiles,
+                    force));
+            } // Foundation-14
+            // Foundation-14 start
+            catch (Exception ex)
             {
-                if (job == null)
-                {
-                    var playerSession = _playerManager.GetSessionById(netUser);
-                    var evNoJobs = new NoJobsAvailableSpawningEvent(playerSession); // Used by gamerules to wipe their antag slot, if they got one
-                    RaiseLocalEvent(evNoJobs);
-
-                    _chatManager.DispatchServerMessage(playerSession, Loc.GetString("job-not-available-wait-in-lobby"));
-                }
-                else
-                {
-                    stationJobCounts[station] += 1;
-                }
+                _sawmill.Error($"Error in SpawnPlayers: {ex}");
             }
-
-            _stationJobs.CalcExtendedAccess(stationJobCounts);
-
-            // Spawn everybody in!
-            foreach (var (player, (job, station)) in assignedJobs)
-            {
-                if (job == null)
-                    continue;
-
-                SpawnPlayer(_playerManager.GetSessionById(player), profiles[player], station, job, false);
-            }
-
-            RefreshLateJoinAllowed();
-
-            // Allow rules to add roles to players who have been spawned in. (For example, on-station traitors)
-            RaiseLocalEvent(new RulePlayerJobsAssignedEvent(
-                assignedJobs.Keys.Select(x => _playerManager.GetSessionById(x)).ToArray(),
-                profiles,
-                force));
+            // Foundation-14 end
         }
 
         private void SpawnPlayer(ICommonSession player,

@@ -61,13 +61,14 @@ namespace Content.Server.Database
         Task<NetUserId?> GetAssignedUserIdAsync(string name);
         #endregion
 
+        // Foundation-14 start
         #region Tickets
         Task<(int balance, float modifier)> GetTicketsAsync(NetUserId userId, CancellationToken cancel = default);
         Task AddTicketsAsync(NetUserId userId, int amount);
         Task SetTicketModifierAsync(NetUserId userId, float modifier);
-        // _SCP: Added for ticket balance manipulation
         Task SetTicketBalanceAsync(NetUserId userId, int balance);
         #endregion
+        // Foundation-14 end
 
         #region Bans
         /// <summary>
@@ -539,6 +540,7 @@ namespace Content.Server.Database
             return RunDbCommand(() => _db.GetAssignedUserIdAsync(name));
         }
 
+        // Foundation-14 start
         #region Tickets
         public Task<(int balance, float modifier)> GetTicketsAsync(NetUserId userId, CancellationToken cancel = default)
         {
@@ -558,13 +560,13 @@ namespace Content.Server.Database
             return RunDbCommand(() => _db.SetTicketModifierAsync(userId, modifier));
         }
 
-        // _SCP: Added for ticket balance manipulation
         public Task SetTicketBalanceAsync(NetUserId userId, int balance)
         {
             DbWriteOpsMetric.Inc();
             return RunDbCommand(() => _db.SetTicketBalanceAsync(userId, balance));
         }
         #endregion
+        // Foundation-14 end
 
         public Task<BanDef?> GetBanAsync(int id)
         {

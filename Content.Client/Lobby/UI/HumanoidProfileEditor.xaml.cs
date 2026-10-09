@@ -427,6 +427,10 @@ namespace Content.Client.Lobby.UI
 
             _loadoutWindow?.Dispose();
             _loadoutWindow = null;
+            // Foundation-14 start
+            if (_ticketManager != null)
+                _ticketManager.TicketInfoUpdated -= RefreshJobs;
+            // Foundation-14 end
         }
 
         protected override void EnteredTree()

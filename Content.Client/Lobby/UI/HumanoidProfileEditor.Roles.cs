@@ -209,11 +209,23 @@ public sealed partial class HumanoidProfileEditor
                 var jobIcon = _prototypeManager.Index(job.Icon);
                 icon.Texture = _sprite.Frame0(jobIcon.Icon);
                 selector.Setup(items, job.LocalizedName, 200, job.LocalizedDescription, icon, job.Guides);
+                // Foundation-14 start
+                if (job.TicketOnly && job.TicketCost > 0)
+                    selector.ToolTip = Loc.GetString("scp-tickets-job-cost", ("cost", job.TicketCost));
+                // Foundation-14 end
 
                 if (!_requirements.IsAllowed(job, (HumanoidCharacterProfile?)_preferencesManager.Preferences?.SelectedCharacter, out var reason))
                 {
                     selector.LockRequirements(reason);
                 }
+                // Foundation-14 start
+                else if (!CheckJobTickets(job, out var ticketReason))
+                {
+                    selector.LockRequirements(ticketReason);
+                    Profile = Profile?.WithJobPriority(job.ID, JobPriority.Never);
+                    SetDirty();
+                }
+                // Foundation-14 end
                 else
                 {
                     selector.UnlockRequirements();

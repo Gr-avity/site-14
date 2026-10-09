@@ -8,7 +8,7 @@ public sealed partial class CCVars
     /// Base rate of tickets earned per full hour of playtime.
     /// </summary>
     public static readonly CVarDef<float> TicketBaseRatePerHour =
-        CVarDef.Create("scp_tickets.base_rate_per_hour", 1.0f, CVar.SERVER);
+        CVarDef.Create("scp_tickets.base_rate_per_hour", 5.0f, CVar.SERVER);
 
     /// <summary>
     /// Interval in seconds between ticket system ticks.

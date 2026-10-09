@@ -983,7 +983,7 @@ namespace Content.Server.Database.Migrations.Sqlite
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("last_seen_user_name");
-
+                    // Foundation-14 start
                     b.Property<int>("TicketBalance")
                         .HasColumnType("INTEGER")
                         .HasColumnName("ticket_balance");
@@ -991,7 +991,7 @@ namespace Content.Server.Database.Migrations.Sqlite
                     b.Property<float>("TicketModifier")
                         .HasColumnType("REAL")
                         .HasColumnName("ticket_modifier");
-
+                    // Foundation-14 end
                     b.Property<Guid>("UserId")
                         .HasColumnType("TEXT")
                         .HasColumnName("user_id");

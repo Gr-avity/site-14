@@ -504,10 +504,8 @@ namespace Content.Server.Database
 
         #endregion
 
+        // Foundation-14 start
         #region Tickets
-        /*
-         * TICKETS
-         */
         public async Task<(int balance, float modifier)> GetTicketsAsync(NetUserId userId, CancellationToken cancel = default)
         {
             await using var db = await GetDb(cancel);
@@ -576,7 +574,6 @@ namespace Content.Server.Database
             await db.DbContext.SaveChangesAsync();
         }
 
-        // _SCP: Added for ticket balance manipulation
         public async Task SetTicketBalanceAsync(NetUserId userId, int balance)
         {
             await using var db = await GetDb();
@@ -604,6 +601,7 @@ namespace Content.Server.Database
         }
 
         #endregion
+        // Foundation-14 end
 
         #region Player Records
         /*

@@ -18,6 +18,8 @@ public sealed partial class LobbyCharacterPreviewPanel : Control
     {
         RobustXamlLoader.Load(this);
         IoCManager.InjectDependencies(this);
+
+        InitTickets(); // Foundation-14
     }
 
     public void SetLoaded(bool value)

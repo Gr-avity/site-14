@@ -11,6 +11,7 @@ using Content.Client.GameTicking.Managers;
 using Content.Client.GhostKick;
 using Content.Client.Guidebook;
 using Content.Client.Launcher;
+using Content.Client._SCP.Tickets; // Foundation-14
 using Content.Client.Mapping;
 using Content.Client.Parallax.Managers;
 using Content.Client.Players.PlayTimeTracking;
@@ -37,6 +38,7 @@ namespace Content.Client.IoC
         public static void Register(IDependencyCollection collection)
         {
             SharedContentIoC.Register(collection);
+            collection.Register<ClientTicketManager>(); // Foundation-14
             collection.Register<IParallaxManager, ParallaxManager>();
             collection.Register<GeneratedParallaxCache>();
             collection.Register<IChatManager, ChatManager>();

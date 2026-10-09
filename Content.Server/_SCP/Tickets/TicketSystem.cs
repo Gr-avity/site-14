@@ -1,13 +1,20 @@
+using Content.Server.Chat.Managers;
 using Content.Server.Database;
 using Content.Server.Players.PlayTimeTracking;
+using Content.Server.GameTicking.Events;
+using Content.Server.Station.Events;
+using Content.Shared._SCP.Tickets;
 using Content.Shared.CCVar;
 using Content.Shared.Players.PlayTimeTracking;
+using Content.Shared.GameTicking;
+using Content.Shared.Roles;
 using Robust.Server.Player;
 using Robust.Shared.Configuration;
 using Robust.Shared.Enums;
 using Robust.Shared.Network;
-using Robust.Shared.Timing;
 using Robust.Shared.Player;
+using Robust.Shared.Prototypes;
+using Robust.Shared.Timing;
 using System.Threading.Tasks;
 
 namespace Content.Server._SCP.Tickets;
@@ -19,6 +26,10 @@ public sealed partial class TicketSystem : EntitySystem
     [Dependency] private PlayTimeTrackingManager _playTimeTracking = default!;
     [Dependency] private IServerDbManager _db = default!;
     [Dependency] private IConfigurationManager _cfg = default!;
+    [Dependency] private IServerNetManager _net = default!;
+    [Dependency] private IChatManager _chatManager = default!;
+    [Dependency] private IPrototypeManager _prototypeManager = default!;
+
     private ISawmill _sawmill = default!;
 
     // In-memory cache of paid hours per player (UserId) to track new hours that need tickets
@@ -29,15 +40,23 @@ public sealed partial class TicketSystem : EntitySystem
     private readonly Dictionary<NetUserId, int> _balanceCache = new();
 
     // Flags for controlling processing
-    private TimeSpan _nextTicketTick = TimeSpan.Zero;
+    private TimeSpan _nextTicketTick;
     private bool _needsProcessing;
     private bool _processing;
 
     public override void Initialize()
     {
-        _sawmill = LogManager.GetSawmill("scp.tickets");
+        _sawmill = LogManager.GetSawmill("scp_tickets");
+
+        _net.RegisterNetMessage<MsgTicketInfo>();
+
         _playTimeTracking.SessionPlayTimeUpdated += OnPlayTimeUpdated;
         _playerManager.PlayerStatusChanged += OnPlayerStatusChanged;
+
+        SubscribeLocalEvent<StationJobsGetCandidatesEvent>(OnStationJobsGetCandidates);
+        SubscribeLocalEvent<GetDisallowedJobsEvent>(OnGetDisallowedJobs);
+        SubscribeLocalEvent<IsRoleAllowedEvent>(OnIsRoleAllowed);
+        SubscribeLocalEvent<PlayerSpawnCompleteEvent>(OnPlayerSpawnComplete);
     }
 
     public override void Shutdown()
@@ -46,73 +65,53 @@ public sealed partial class TicketSystem : EntitySystem
         _playerManager.PlayerStatusChanged -= OnPlayerStatusChanged;
     }
 
-    public override void Update(float frameTime)
-    {
-        // Run processing cycle if either:
-        // - we have pending playtime updates (from SessionPlayTimeUpdated), OR
-        // - it's time for the periodic tick
-        if (!_processing && (_needsProcessing || _gameTiming.RealTime >= _nextTicketTick))
-        {
-            _processing = true;
-            // Fire-and-forget the processing cycle
-            ProcessTicketCycleAsync();
-        }
-    }
-
     private void OnPlayTimeUpdated(ICommonSession session)
     {
-        // Signal that we have pending playtime updates to process
         _needsProcessing = true;
     }
 
-    private void OnPlayerStatusChanged(object? sender, SessionStatusEventArgs args)
+    private void OnPlayerStatusChanged(object? sender, SessionStatusEventArgs e)
     {
-        if (args.NewStatus == SessionStatus.Disconnected)
+        if (e.NewStatus == SessionStatus.Disconnected)
         {
-            InvalidateCache(args.Session.UserId);
+            InvalidateCache(e.Session.UserId);
         }
+        else if (e.NewStatus == SessionStatus.InGame)
+        {
+            SendTicketInfo(e.Session);
+        }
+    }
+
+    public override void Update(float frameTime)
+    {
+        base.Update(frameTime);
+
+        if (_processing)
+            return;
+
+        var realTime = _gameTiming.RealTime;
+        if (!_needsProcessing && realTime < _nextTicketTick)
+            return;
+
+        _processing = true;
+        _needsProcessing = false;
+        _nextTicketTick = realTime + TimeSpan.FromSeconds(_cfg.GetCVar(CCVars.TicketTickIntervalSec));
+
+        ProcessTicketCycleAsync();
     }
 
     private async void ProcessTicketCycleAsync()
     {
         try
         {
-            var baseRate = _cfg.GetCVar(CCVars.TicketBaseRatePerHour);
-            var modifierStep = _cfg.GetCVar(CCVars.TicketModifierStep);
-            var modifierHoursStep = _cfg.GetCVar(CCVars.TicketModifierHoursStep);
-            var modifierMax = _cfg.GetCVar(CCVars.TicketModifierMax);
-            var updateTasks = new List<Task>();
-
-            // Process all connected sessions
             foreach (var session in _playerManager.Sessions)
             {
-                try
-                {
-                    var task = ProcessPlayerTicketsAsync(session, baseRate, modifierStep, modifierHoursStep, modifierMax);
-                    updateTasks.Add(task);
-                }
-                catch (Exception ex)
-                {
-                    _sawmill.Error($"Error processing tickets for session {session.Name}: {ex}");
-                }
+                await ProcessPlayerTicketsAsync(session);
             }
-
-            // Wait for all database operations to complete
-            if (updateTasks.Count > 0)
-            {
-                await Task.WhenAll(updateTasks);
-            }
-
-            // Reset the needsProcessing flag (it might have been set again during processing by another event)
-            _needsProcessing = false;
-
-            // Set the next ticket tick time to be tickInterval seconds from now
-            var tickInterval = _cfg.GetCVar(CCVars.TicketTickIntervalSec);
-            _nextTicketTick = _gameTiming.RealTime + TimeSpan.FromSeconds(tickInterval);
         }
         catch (Exception ex)
         {
-            _sawmill.Error($"Error in ProcessTicketCycleAsync: {ex}");
+            _sawmill.Error($"Error in ticket processing cycle: {ex}");
         }
         finally
         {
@@ -120,86 +119,215 @@ public sealed partial class TicketSystem : EntitySystem
         }
     }
 
-    private async Task ProcessPlayerTicketsAsync(
-        ICommonSession session,
-        float baseRate,
-        float modifierStep,
-        int modifierHoursStep,
-        float modifierMax)
+    private async Task ProcessPlayerTicketsAsync(ICommonSession session)
     {
         try
         {
-            // Get overall play time - may throw if data not loaded (e.g., player just connected)
-            var totalPlayTime = _playTimeTracking.GetPlayTimeForTracker(session, PlayTimeTrackingShared.TrackerOverall);
-            var totalHours = (int)totalPlayTime.TotalHours;
             var userId = session.UserId;
+            var totalHours = (int) _playTimeTracking
+                .GetPlayTimeForTracker(session, PlayTimeTrackingShared.TrackerOverall)
+                .TotalHours;
 
-            // Get cached values or load from DB
             if (!_paidHoursCache.TryGetValue(userId, out var paidHours))
             {
-                // First time seeing this player: consider all hours up to now as already paid
-                // This prevents awarding for hours accumulated before this connection
+                // First time we see this player this session — don't pay for old hours,
+                // otherwise reconnect/restart would grant tickets for already-played time.
+                _paidHoursCache[userId] = totalHours;
                 paidHours = totalHours;
-                _paidHoursCache[userId] = paidHours;
             }
 
-            if (!_modifierCache.TryGetValue(userId, out var currentModifier))
-            {
-                // Load from DB if not in cache
-                var (balance, modifier) = await _db.GetTicketsAsync(userId);
-                _balanceCache[userId] = balance;
-                _modifierCache[userId] = modifier;
-                currentModifier = modifier;
-            }
-
-            // Calculate new hours to award tickets for
-            var newHours = Math.Max(0, totalHours - paidHours);
-
-            if (newHours == 0)
+            var newHours = totalHours - paidHours;
+            if (newHours <= 0)
                 return;
 
-            var currentBalance = _balanceCache[userId];
+            await EnsureLoadedAsync(userId);
 
-            // Calculate auto-computed modifier based on total hours played
-            var autoComputedModifier = Math.Clamp(
-                1.0f + modifierStep * MathF.Floor(totalHours / (float)modifierHoursStep),
-                1.0f,
-                modifierMax
-            );
-
-            // Use the maximum of stored modifier and auto-computed modifier
-            var finalModifier = Math.Max(currentModifier, autoComputedModifier);
-
-            // Calculate tickets to award
-            var ticketsToAdd = (int)Math.Floor(newHours * baseRate * finalModifier);
-
-            if (ticketsToAdd > 0)
+            var modifier = _modifierCache.GetValueOrDefault(userId, 1.0f);
+            var rate = _cfg.GetCVar(CCVars.TicketBaseRatePerHour);
+            var modifierRounded = Math.Round((double) modifier, 2);
+            var tickets = (int) Math.Floor(newHours * modifierRounded * rate);
+            if (tickets > 0)
             {
-                // Add tickets to DB
-                await _db.AddTicketsAsync(userId, ticketsToAdd);
-
-                // Update cache
-                _balanceCache[userId] = currentBalance + ticketsToAdd;
-                _paidHoursCache[userId] = totalHours;
+                await _db.AddTicketsAsync(userId, tickets);
+                _balanceCache[userId] = _balanceCache.GetValueOrDefault(userId) + tickets;
             }
 
-            // Update modifier in DB if it changed
-            if (currentModifier != finalModifier)
+            _paidHoursCache[userId] = totalHours;
+
+            // Automatic modifier increase: +step per full ModifierHoursStep hours.
+            var hoursStep = _cfg.GetCVar(CCVars.TicketModifierHoursStep);
+            if (hoursStep > 0)
             {
-                await _db.SetTicketModifierAsync(userId, finalModifier);
-                _modifierCache[userId] = finalModifier;
+                var step = _cfg.GetCVar(CCVars.TicketModifierStep);
+                var max = _cfg.GetCVar(CCVars.TicketModifierMax);
+                // Formula from total hours — no accumulated float error; round to 2 decimals for clean values.
+                var target = MathF.Min(MathF.Round(1.0f + (totalHours / hoursStep) * step, 2), max);
+                if (target > modifier)
+                {
+                    await _db.SetTicketModifierAsync(userId, target);
+                    _modifierCache[userId] = target;
+                }
             }
+
+            TryPushTicketInfo(userId);
         }
         catch (InvalidOperationException)
         {
-            // Session data not loaded yet (e.g., player just connected) - skip
-            // The SessionPlayTimeUpdated event will trigger processing next tick
+            // Play time info is not yet loaded for this player — skip this tick.
+            return;
+        }
+    }
+
+    /// <summary>
+    /// Preloads ticket caches for all given sessions. Called from GameTicker.SpawnPlayers
+    /// before AssignJobs so that candidate filtering sees up-to-date balances.
+    /// </summary>
+    public async Task PreloadTicketsAsync(IEnumerable<ICommonSession> sessions)
+    {
+        foreach (var session in sessions)
+        {
+            try
+            {
+                await EnsureLoadedAsync(session.UserId);
+            }
+            catch (Exception ex)
+            {
+                _sawmill.Error($"Failed to preload tickets for {session}: {ex}");
+            }
+        }
+    }
+
+    #region Ticket queue — roundstart candidate filtering
+
+    private void OnStationJobsGetCandidates(ref StationJobsGetCandidatesEvent ev)
+    {
+        if (!_balanceCache.TryGetValue(ev.Player, out var balance))
+            return; // Not preloaded — leave candidates untouched.
+
+        ev.Jobs.RemoveAll(job =>
+        {
+            if (!_prototypeManager.TryIndex<JobPrototype>(job, out var proto))
+                return false;
+
+            return proto.TicketOnly && proto.TicketCost > balance;
+        });
+    }
+
+    private void OnGetDisallowedJobs(ref GetDisallowedJobsEvent ev)
+    {
+        if (!_balanceCache.TryGetValue(ev.Player.UserId, out var balance))
+            return;
+
+        foreach (var proto in _prototypeManager.EnumeratePrototypes<JobPrototype>())
+        {
+            if (proto.TicketOnly && proto.TicketCost > balance)
+                ev.Jobs.Add(proto.ID);
+        }
+    }
+
+    #endregion
+
+    #region Ticket queue — latejoin gate
+
+    private void OnIsRoleAllowed(ref IsRoleAllowedEvent ev)
+    {
+        if (ev.Jobs == null)
+            return;
+
+        if (!_balanceCache.TryGetValue(ev.Player.UserId, out var balance))
+            return;
+
+        foreach (var jobId in ev.Jobs)
+        {
+            if (!_prototypeManager.TryIndex<JobPrototype>(jobId, out var proto))
+                continue;
+
+            if (proto.TicketOnly && proto.TicketCost > balance)
+            {
+                ev.Cancelled = true;
+                _chatManager.DispatchServerMessage(ev.Player,
+                    Loc.GetString("scp-tickets-insufficient",
+                        ("role", proto.LocalizedName),
+                        ("cost", proto.TicketCost),
+                        ("balance", balance)));
+                return;
+            }
+        }
+    }
+
+    #endregion
+
+    #region Ticket spending on spawn
+
+    private void OnPlayerSpawnComplete(PlayerSpawnCompleteEvent ev)
+    {
+        if (ev.JobId == null)
+            return;
+
+        if (!_prototypeManager.TryIndex<JobPrototype>(ev.JobId, out var proto))
+            return;
+
+        if (!proto.TicketOnly || proto.TicketCost <= 0)
+            return;
+
+        if (!_balanceCache.TryGetValue(ev.Player.UserId, out var balance) || balance < proto.TicketCost)
+            return;
+
+        SpendTickets(ev.Player, proto);
+    }
+
+    private async void SpendTickets(ICommonSession player, JobPrototype job)
+    {
+        try
+        {
+            await AddTicketsAsync(player.UserId, -job.TicketCost);
+            var newBalance = _balanceCache.GetValueOrDefault(player.UserId);
+
+            _chatManager.DispatchServerMessage(player,
+                Loc.GetString("scp-tickets-spent",
+                    ("cost", job.TicketCost),
+                    ("role", job.LocalizedName),
+                    ("balance", newBalance)));
         }
         catch (Exception ex)
         {
-            _sawmill.Error($"Unexpected error processing tickets for session {session.Name}: {ex}");
+            _sawmill.Error($"Failed to spend tickets for {player}: {ex}");
         }
     }
+
+    #endregion
+
+    #region Client info push
+
+    private async void SendTicketInfo(ICommonSession player)
+    {
+        try
+        {
+            await EnsureLoadedAsync(player.UserId);
+
+            var msg = new MsgTicketInfo
+            {
+                Balance = _balanceCache.GetValueOrDefault(player.UserId),
+                Modifier = _modifierCache.GetValueOrDefault(player.UserId, 1.0f),
+            };
+
+            _net.ServerSendMessage(msg, player.Channel);
+        }
+        catch (Exception ex)
+        {
+            _sawmill.Error($"Failed to send ticket info to {player}: {ex}");
+        }
+    }
+
+    private void TryPushTicketInfo(NetUserId userId)
+    {
+        if (_playerManager.TryGetSessionById(userId, out var session))
+            SendTicketInfo(session);
+    }
+
+    #endregion
+
+    #region Cache / public API
 
     private async Task EnsureLoadedAsync(NetUserId userId)
     {
@@ -225,6 +353,8 @@ public sealed partial class TicketSystem : EntitySystem
 
         await _db.AddTicketsAsync(userId, amount);
         _balanceCache[userId] = _balanceCache.GetValueOrDefault(userId) + amount;
+
+        TryPushTicketInfo(userId);
     }
 
     public async Task SetTicketModifierAsync(NetUserId userId, float modifier)
@@ -233,8 +363,11 @@ public sealed partial class TicketSystem : EntitySystem
 
         // Clamp the modifier to the allowed range.
         modifier = Math.Clamp(modifier, 1.0f, _cfg.GetCVar(CCVars.TicketModifierMax));
+        modifier = (float) Math.Round((double) modifier, 2);
         await _db.SetTicketModifierAsync(userId, modifier);
         _modifierCache[userId] = modifier;
+
+        TryPushTicketInfo(userId);
     }
 
     public async Task<int> GetBalanceAsync(NetUserId userId)
@@ -244,7 +377,6 @@ public sealed partial class TicketSystem : EntitySystem
         return _balanceCache.GetValueOrDefault(userId);
     }
 
-    // _SCP: Added for ticket balance manipulation
     public async Task SetTicketBalanceAsync(NetUserId userId, int balance)
     {
         await EnsureLoadedAsync(userId);
@@ -253,6 +385,8 @@ public sealed partial class TicketSystem : EntitySystem
         balance = Math.Max(0, balance);
         await _db.SetTicketBalanceAsync(userId, balance);
         _balanceCache[userId] = balance;
+
+        TryPushTicketInfo(userId);
     }
 
     public void InvalidateCache(NetUserId userId)
@@ -261,4 +395,6 @@ public sealed partial class TicketSystem : EntitySystem
         _modifierCache.Remove(userId);
         _balanceCache.Remove(userId);
     }
+
+    #endregion
 }
