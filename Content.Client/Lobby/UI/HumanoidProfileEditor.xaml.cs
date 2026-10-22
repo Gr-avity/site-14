@@ -102,6 +102,10 @@ namespace Content.Client.Lobby.UI
             _requirements = requirements;
             _controller = UserInterfaceManager.GetUIController<LobbyUIController>();
             _sprite = _entManager.System<SpriteSystem>();
+            // Foundation-14 start
+            _ticketManager = IoCManager.Resolve<_SCP.Tickets.ClientTicketManager>();
+            _ticketManager.TicketInfoUpdated += RefreshJobs;
+            // Foundation-14 end
 
             _maxNameLength = _cfgManager.GetCVar(CCVars.MaxNameLength);
             _allowFlavorText = _cfgManager.GetCVar(CCVars.FlavorText);
@@ -425,6 +429,7 @@ namespace Content.Client.Lobby.UI
             if (!disposing)
                 return;
 
+            _ticketManager.TicketInfoUpdated -= RefreshJobs; // Foundation-14
             _loadoutWindow?.Dispose();
             _loadoutWindow = null;
         }

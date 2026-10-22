@@ -94,6 +94,7 @@ namespace Content.Client.Entry
 
         public override void Init()
         {
+            Initialize(); // Foundation-14
             Dependencies.BuildGraph();
             Dependencies.InjectDependencies(this);
 
