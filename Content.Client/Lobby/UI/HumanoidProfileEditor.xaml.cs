@@ -90,6 +90,7 @@ namespace Content.Client.Lobby.UI
             MarkingManager markings)
         {
             RobustXamlLoader.Load(this);
+            IoCManager.InjectDependencies(this); // Foundation-14
             _sawmill = logManager.GetSawmill("profile.editor");
             _cfgManager = configurationManager;
             _entManager = entManager;
@@ -100,12 +101,9 @@ namespace Content.Client.Lobby.UI
             _preferencesManager = preferencesManager;
             _resManager = resManager;
             _requirements = requirements;
+            _ticketManager.TicketInfoUpdated += RefreshJobs; // Foundation-14
             _controller = UserInterfaceManager.GetUIController<LobbyUIController>();
             _sprite = _entManager.System<SpriteSystem>();
-            // Foundation-14 start
-            _ticketManager = IoCManager.Resolve<_SCP.Tickets.ClientTicketManager>();
-            _ticketManager.TicketInfoUpdated += RefreshJobs;
-            // Foundation-14 end
 
             _maxNameLength = _cfgManager.GetCVar(CCVars.MaxNameLength);
             _allowFlavorText = _cfgManager.GetCVar(CCVars.FlavorText);
