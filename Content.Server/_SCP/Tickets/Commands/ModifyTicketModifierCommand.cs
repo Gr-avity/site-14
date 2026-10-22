@@ -8,7 +8,7 @@ using Robust.Shared.Utility;
 namespace Content.Server._SCP.Tickets.Commands;
 
 [AdminCommand(AdminFlags.Host)]
-public sealed class ModifyTicketModifierCommand : IConsoleCommand
+public sealed partial class ModifyTicketModifierCommand : IConsoleCommand
 {
     [Dependency] private IPlayerManager _playerManager = default!;
     [Dependency] private IEntityManager _entityManager = default!;

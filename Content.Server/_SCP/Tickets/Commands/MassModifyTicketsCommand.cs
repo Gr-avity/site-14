@@ -10,7 +10,7 @@ using Robust.Shared.Utility;
 namespace Content.Server._SCP.Tickets.Commands;
 
 [AdminCommand(AdminFlags.Host)]
-public sealed class MassModifyTicketsCommand : IConsoleCommand
+public sealed partial class MassModifyTicketsCommand : IConsoleCommand
 {
     [Dependency] private IConfigurationManager _cfg = default!;
     [Dependency] private IPlayerManager _playerManager = default!;

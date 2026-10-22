@@ -6,7 +6,7 @@ namespace Content.Client.Lobby.UI;
 
 public sealed partial class LobbyCharacterPreviewPanel : Control
 {
-    [Dependency] private readonly ClientTicketManager _ticketManager = default!;
+    [Dependency] private ClientTicketManager _ticketManager = default!;
 
     protected override void EnteredTree()
     {
