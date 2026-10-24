@@ -69,7 +69,9 @@ public sealed partial class ModifyTicketModifierCommand : IConsoleCommand
                 return;
             }
 
-            var newEff = MathF.Round(auto + newBonus, 2);
+            var savedBonus = await ticketSys.GetTicketBonusModifierAsync(userId, CancellationToken.None);
+            var savedAuto = await ticketSys.GetTicketAutoModifierAsync(userId, CancellationToken.None);
+            var newEff = MathF.Round(savedAuto + savedBonus, 2);
             shell.WriteLine(Loc.GetString("cmd-scp-modifyticketmodifier-ok",
                 ("user", session.Name),
                 ("modifier", newEff)));

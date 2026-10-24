@@ -618,6 +618,20 @@ namespace Content.Server.Database
             return (record.TicketBalance, record.TicketAutoModifier, record.TicketModifierBonus, record.TicketPaidHours);
         }
 
+        public async Task<int> AddTicketsAndSetPaidHoursAsync(NetUserId userId, float amount, int expectedPaidHours, int newPaidHours, CancellationToken cancel)
+        {
+            await using var db = await GetDb(cancel);
+
+            var rows = await db.DbContext.Player
+                .Where(p => p.UserId == userId.UserId && p.TicketPaidHours == expectedPaidHours)
+                .ExecuteUpdateAsync(p => p
+                        .SetProperty(pp => pp.TicketBalance, pp => pp.TicketBalance + amount)
+                        .SetProperty(pp => pp.TicketPaidHours, newPaidHours),
+                    cancellationToken: cancel);
+
+            return rows;
+        }
+
         public async Task<int> AddTicketsAtomicAsync(NetUserId userId, float amount, CancellationToken cancel)
         {
             await using var db = await GetDb(cancel);

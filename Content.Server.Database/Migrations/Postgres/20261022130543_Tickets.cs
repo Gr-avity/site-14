@@ -15,7 +15,7 @@ namespace Content.Server.Database.Migrations.Postgres
                 table: "player",
                 type: "real",
                 nullable: false,
-                defaultValue: 0f);
+                defaultValue: 1f);
 
             migrationBuilder.AddColumn<float>(
                 name: "ticket_balance",

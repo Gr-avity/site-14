@@ -164,16 +164,18 @@ public sealed partial class TicketSystem : EntitySystem, IPostInjectInit
                 eff = (float)Math.Round((double)eff, 2);
                 var earned = hoursThisIter * (rate + (eff - 1f));
 
+                var rows = await _db.AddTicketsAndSetPaidHoursAsync(userId, earned, paidHours, totalHours);
+                if (rows == 0)
+                {
+                    return;
+                }
+
                 if (earned > 0)
                 {
-                    var rows = await _db.AddTicketsAtomicAsync(userId, earned);
-                    if (rows == 0)
-                        return;
                     _balanceCache[userId] = _balanceCache.GetValueOrDefault(userId, 0) + earned;
                 }
 
                 _paidHoursCache[userId] = totalHours;
-                await _db.SetTicketPaidHoursAsync(userId, totalHours);
 
                 float targetAuto = 1.0f + step * MathF.Floor(totalHours / (float)hoursStep);
                 targetAuto = MathF.Min(targetAuto, max);
@@ -407,6 +409,18 @@ public sealed partial class TicketSystem : EntitySystem, IPostInjectInit
             return false;
 
         _bonusModCache[userId] = bonus;
+        await TryPushTicketInfoAsync(userId);
+        return true;
+    }
+
+    public async Task<bool> TrySpendTicketsAsync(NetUserId userId, float cost)
+    {
+        await EnsureLoadedAsync(userId);
+
+        if (!await _db.TrySpendTicketsAsync(userId, cost))
+            return false;
+
+        _balanceCache[userId] = _balanceCache.GetValueOrDefault(userId, 0) - cost;
         await TryPushTicketInfoAsync(userId);
         return true;
     }

@@ -51,17 +51,13 @@ public sealed partial class ModifyTicketsCommand : IConsoleCommand
                         return;
                     }
 
-                    var current = await ticketSys.GetBalanceAsync(userId);
-
                     if (op == "subtract")
                     {
-                        if (current < amount)
+                        if (!await ticketSys.TrySpendTicketsAsync(userId, amount))
                         {
                             shell.WriteError(Loc.GetString("cmd-scp-modifytickets-error-insufficient"));
                             return;
                         }
-
-                        await ticketSys.SetTicketBalanceAsync(userId, current - amount);
                     }
                     else
                     {
@@ -71,7 +67,11 @@ public sealed partial class ModifyTicketsCommand : IConsoleCommand
                             return;
                         }
 
-                        await ticketSys.AddTicketsAsync(userId, amount);
+                        if (!await ticketSys.AddTicketsAsync(userId, amount))
+                        {
+                            shell.WriteError(Loc.GetString("cmd-scp-modifytickets-error-failed", ("user", userName)));
+                            return;
+                        }
                     }
 
                     shell.WriteLine(Loc.GetString("cmd-scp-modifytickets-ok-balance",

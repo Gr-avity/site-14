@@ -305,6 +305,8 @@ namespace Content.Server.Database
 
         Task<(float balance, float autoMod, float bonusMod, int paidHours)> GetTicketsAsync(NetUserId userId, CancellationToken cancel = default);
 
+        Task<int> AddTicketsAndSetPaidHoursAsync(NetUserId userId, float amount, int expectedPaidHours, int newPaidHours, CancellationToken cancel = default);
+
         Task<int> AddTicketsAtomicAsync(NetUserId userId, float amount, CancellationToken cancel = default);
 
         Task<bool> TrySpendTicketsAsync(NetUserId userId, float cost, CancellationToken cancel = default);
@@ -1025,6 +1027,12 @@ namespace Content.Server.Database
         {
             DbReadOpsMetric.Inc();
             return RunDbCommand(() => _db.GetTicketsAsync(userId, cancel));
+        }
+
+        public Task<int> AddTicketsAndSetPaidHoursAsync(NetUserId userId, float amount, int expectedPaidHours, int newPaidHours, CancellationToken cancel = default)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.AddTicketsAndSetPaidHoursAsync(userId, amount, expectedPaidHours, newPaidHours, cancel));
         }
 
         public Task<int> AddTicketsAtomicAsync(NetUserId userId, float amount, CancellationToken cancel = default)

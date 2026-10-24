@@ -30,6 +30,7 @@ public sealed partial class ClientTicketManager
     {
         Balance = 0f;
         Modifier = 1.0f;
+        TicketInfoUpdated?.Invoke();
     }
 
     private void RxTicketInfo(MsgTicketInfo msg)
